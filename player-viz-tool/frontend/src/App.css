@@ -365,6 +365,23 @@ body {
   cursor: pointer;
 }
 
+/* Heatmap panel styling */
+.panel select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.panel select {
+  width: 100%;
+  padding: 8px 12px;
+  background: #0d1117;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  color: #c9d1d9;
+  font-size: 14px;
+  cursor: pointer;
+}
+
 /* Scrollbar styling */
 ::-webkit-scrollbar {
   width: 8px;

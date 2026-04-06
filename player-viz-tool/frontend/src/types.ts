@@ -53,6 +53,13 @@ export interface MapConfig {
   originZ: number;
   imageWidth: number;
   imageHeight: number;
+  // World bounds for coordinate transformation
+  worldBounds: {
+    minX: number;
+    maxX: number;
+    minY: number;
+    maxY: number;
+  };
 }
 
 export interface FilterState {

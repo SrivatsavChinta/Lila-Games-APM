@@ -62,6 +62,10 @@ function App() {
     endTime: 0,
   });
 
+  // Heatmap
+  const [heatmapEnabled, setHeatmapEnabled] = useState(false);
+  const [heatmapType, setHeatmapType] = useState<'kills' | 'deaths' | 'traffic' | 'loot'>('kills');
+
   // Get current match
   const currentMatch = useMemo(() => {
     if (!selectedMatchId) return matches[0] || null;
@@ -297,6 +301,30 @@ function App() {
             ))}
           </section>
 
+          {/* Heatmap controls */}
+          <section className="panel">
+            <h3>Heatmap</h3>
+            <label>
+              <input
+                type="checkbox"
+                checked={heatmapEnabled}
+                onChange={(e) => setHeatmapEnabled(e.target.checked)}
+              />
+              Show Heatmap
+            </label>
+            <select
+              value={heatmapType}
+              onChange={(e) => setHeatmapType(e.target.value as typeof heatmapType)}
+              disabled={!heatmapEnabled}
+              style={{ marginTop: '8px' }}
+            >
+              <option value="kills">Kills</option>
+              <option value="deaths">Deaths</option>
+              <option value="loot">Loot</option>
+              <option value="traffic">Traffic</option>
+            </select>
+          </section>
+
           {/* Player list */}
           {currentMatch && (
             <section className="panel player-list">
@@ -381,6 +409,8 @@ function App() {
               visibleEventTypes={filters.eventTypes}
               onPlayerSelect={setSelectedPlayerId}
               onMapClick={(x, y) => console.log('Map clicked:', { x, y })}
+              heatmapEnabled={heatmapEnabled}
+              heatmapType={heatmapType}
             />
           </div>
 

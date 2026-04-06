@@ -107,6 +107,12 @@ export const DEFAULT_MAP_CONFIGS: MapConfig[] = [
     originZ: -473,
     imageWidth: 1024,
     imageHeight: 1024,
+    worldBounds: {
+      minX: -370,
+      maxX: 530,
+      minY: -473,
+      maxY: 427,
+    },
   },
   {
     map_id: 'GrandRift',
@@ -117,6 +123,12 @@ export const DEFAULT_MAP_CONFIGS: MapConfig[] = [
     originZ: -290,
     imageWidth: 1024,
     imageHeight: 1024,
+    worldBounds: {
+      minX: -290,
+      maxX: 291,
+      minY: -290,
+      maxY: 291,
+    },
   },
   {
     map_id: 'Lockdown',
@@ -127,6 +139,12 @@ export const DEFAULT_MAP_CONFIGS: MapConfig[] = [
     originZ: -500,
     imageWidth: 1024,
     imageHeight: 1024,
+    worldBounds: {
+      minX: -500,
+      maxX: 500,
+      minY: -500,
+      maxY: 500,
+    },
   },
 ];
 

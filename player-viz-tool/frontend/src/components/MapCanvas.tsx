@@ -7,6 +7,7 @@ import { Stage, Layer, Image as KonvaImage, Line, Circle, Text } from 'react-kon
 import Konva from 'konva';
 import type { MatchData, PlayerJourney, PlayerEvent, MapConfig, EventType } from '../types';
 import { worldToImage } from '../utils/coordinates';
+import { HeatmapLayer } from './HeatmapLayer';
 
 interface MapCanvasProps {
   mapConfig: MapConfig;
@@ -18,6 +19,8 @@ interface MapCanvasProps {
   visibleEventTypes: EventType[];
   onPlayerSelect: (playerId: string | null) => void;
   onMapClick: (worldX: number, worldY: number) => void;
+  heatmapEnabled?: boolean;
+  heatmapType?: 'kills' | 'deaths' | 'traffic' | 'loot';
 }
 
 // Color scheme for different event types
@@ -45,6 +48,8 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
   visibleEventTypes,
   onPlayerSelect,
   onMapClick,
+  heatmapEnabled = false,
+  heatmapType = 'kills',
 }) => {
   const [minimapImage, setMinimapImage] = useState<HTMLImageElement | null>(null);
   const [scale, setScale] = useState(1);
@@ -148,8 +153,19 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
         height: '100%',
         backgroundColor: '#1a1a1a',
         overflow: 'hidden',
+        position: 'relative',
       }}
     >
+      <HeatmapLayer
+        mapConfig={mapConfig}
+        matchData={matchData}
+        visibleEventTypes={visibleEventTypes}
+        showBots={showBots}
+        showHumans={showHumans}
+        currentTime={currentTime}
+        enabled={heatmapEnabled}
+        type={heatmapType}
+      />
       <Stage
         ref={stageRef}
         width={mapConfig.imageWidth * scale}
@@ -157,7 +173,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
         scaleX={scale}
         scaleY={scale}
         onClick={handleStageClick}
-        style={{ cursor: 'crosshair' }}
+        style={{ cursor: 'crosshair', position: 'relative', zIndex: 20 }}
       >
         <Layer>
           {/* Minimap background */}

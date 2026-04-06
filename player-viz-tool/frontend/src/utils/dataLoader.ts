@@ -3,6 +3,19 @@
  */
 import type { PlayerEvent, MatchData, PlayerJourney } from '../types';
 import { tableFromIPC } from 'apache-arrow';
+import * as parquetWasm from 'parquet-wasm';
+
+// Initialize parquet-wasm WASM module
+let wasmInitialized: Promise<void> | null = null;
+
+async function initParquetWasm(): Promise<void> {
+  if (!wasmInitialized) {
+    wasmInitialized = parquetWasm.default().then(() => {
+      console.log('Parquet WASM initialized');
+    });
+  }
+  return wasmInitialized;
+}
 
 // Mock data generator for testing without parquet files
 export function generateMockData(mapId: string = 'map_01'): MatchData {
@@ -95,6 +108,9 @@ export async function loadParquetFile(
   source: string | File
 ): Promise<PlayerEvent[]> {
   try {
+    // Ensure WASM is initialized
+    await initParquetWasm();
+
     let buffer: ArrayBuffer;
 
     if (typeof source === 'string') {
@@ -109,9 +125,12 @@ export async function loadParquetFile(
       buffer = await source.arrayBuffer();
     }
 
-    // For now, we'll use Arrow IPC format
-    // Parquet support requires additional WASM setup
-    const table = tableFromIPC(new Uint8Array(buffer));
+    // Use parquet-wasm to read the parquet file
+    const arrowWasmTable = parquetWasm.readParquet(new Uint8Array(buffer));
+
+    // Convert WASM table to Arrow JS table using IPC format
+    const ipcBytes = arrowWasmTable.intoIPCStream();
+    const table = tableFromIPC(ipcBytes);
 
     // Convert Arrow table to PlayerEvent array
     const events: PlayerEvent[] = [];
@@ -129,7 +148,7 @@ export async function loadParquetFile(
     for (let i = 0; i < numRows; i++) {
       events.push({
         id: `${matchIdCol?.get(i)}_${playerIdCol?.get(i)}_${i}`,
-        player_id: String(playerIdCol?.get(i) ?? ''), // Added nullish coalescing
+        player_id: String(playerIdCol?.get(i) ?? ''),
         match_id: String(matchIdCol?.get(i) ?? ''),
         map_id: String(mapIdCol?.get(i) ?? ''),
         timestamp: Number(timestampCol?.get(i) ?? 0),
