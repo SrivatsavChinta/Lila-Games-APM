@@ -23,12 +23,9 @@ build/
 .DS_Store
 Thumbs.db
 
-# Data files (large files - don't commit)
-data/*.parquet
-data/*.arrow
-data/maps/*.png
-data/maps/*.jpg
-data/maps/*.jpeg
+# Data folder - don't commit any data files
+data/
+!data/README.md
 
 # Logs
 npm-debug.log*

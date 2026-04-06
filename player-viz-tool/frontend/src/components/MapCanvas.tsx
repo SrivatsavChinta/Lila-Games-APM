@@ -63,14 +63,20 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
     };
   }, [mapConfig.imageUrl]);
 
-  // Calculate scale to fit container
+  // Calculate scale to fit container while maintaining aspect ratio
   useEffect(() => {
     if (containerRef.current && minimapImage) {
       const containerWidth = containerRef.current.offsetWidth;
-      const scale = containerWidth / mapConfig.imageWidth;
-      setScale(scale);
+      const containerHeight = containerRef.current.offsetHeight;
+
+      // Calculate scale to fit within container (preserving aspect ratio)
+      const scaleX = containerWidth / mapConfig.imageWidth;
+      const scaleY = containerHeight / mapConfig.imageHeight;
+      const fitScale = Math.min(scaleX, scaleY);
+
+      setScale(fitScale);
     }
-  }, [minimapImage, mapConfig.imageWidth]);
+  }, [minimapImage, mapConfig.imageWidth, mapConfig.imageHeight]);
 
   // Filter visible players
   const visiblePlayers = matchData?.players.filter((p) => {
