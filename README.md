@@ -1,9 +1,11 @@
-🔗 Live Demo: https://lila-games-apm.vercel.app/
-Checkout the drive link for documents: https://bit.ly/4sQvKJ6
-
 # LILA BLACK - Player Journey Visualization Tool
 
+🔗 **Live Demo:** https://lila-games-apm.vercel.app/  
+📄 **Checkout the drive link for documents:** https://bit.ly/4sQvKJ6
+
 A browser-based telemetry visualization tool for Lila Games' extraction shooter **LILA BLACK**.
+
+---
 
 ## Overview
 
@@ -14,13 +16,17 @@ This tool allows Level Designers to explore player behavior on game maps by visu
 - Match timelines with playback controls
 - Heatmap overlays (Phase 2)
 
+---
+
 ## Tech Stack
 
-- **Frontend**: React 18 + Vite + TypeScript
-- **Parquet Parsing**: Apache Arrow (browser-side)
-- **Canvas Rendering**: Konva.js
-- **Heatmap**: heatmap.js (Phase 2)
-- **Hosting**: Vercel
+- **Frontend:** React 18 + Vite + TypeScript
+- **Parquet Parsing:** Apache Arrow (browser-side)
+- **Canvas Rendering:** Konva.js
+- **Heatmap:** heatmap.js (Phase 2)
+- **Hosting:** Vercel
+
+---
 
 ## Quick Start
 
@@ -30,28 +36,32 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:5173 to view the app.
+Open `http://localhost:5173` to view the app.
+
+---
 
 ## Project Structure
 
-```
+```text
 player-viz-tool/
-├── frontend/              # React application
+├── frontend/                    # React application
 │   ├── src/
-│   │   ├── types.ts      # Core TypeScript types
+│   │   ├── types.ts            # Core TypeScript types
 │   │   ├── utils/
-│   │   │   ├── dataLoader.ts    # Parquet + mock data
-│   │   │   └── coordinates.ts   # World/image coord transforms
+│   │   │   ├── dataLoader.ts  # Parquet + mock data
+│   │   │   └── coordinates.ts # World/image coord transforms
 │   │   ├── components/
-│   │   │   └── MapCanvas.tsx    # Konva map renderer
-│   │   └── App.tsx       # Main application
+│   │   │   └── MapCanvas.tsx  # Konva map renderer
+│   │   └── App.tsx            # Main application
 │   └── package.json
-├── backend/              # Optional Python utilities
-├── data/                 # Minimap images + parquet files (gitignored)
-├── ARCHITECTURE.md       # System design docs
-├── INSIGHTS.md          # Development learnings
+├── backend/                    # Optional Python utilities
+├── data/                       # Minimap images + parquet files (gitignored)
+├── ARCHITECTURE.md            # System design docs
+├── INSIGHTS.md                # Development learnings
 └── README.md
 ```
+
+---
 
 ## Features
 
@@ -71,6 +81,8 @@ player-viz-tool/
 - [ ] Heatmap overlays
 - [ ] Multiple match comparison
 - [ ] Export to video/GIF
+
+---
 
 ## Data Format
 
@@ -95,9 +107,11 @@ interface PlayerEvent {
 }
 ```
 
+---
+
 ## Coordinate System
 
-**Critical**: Coordinate mapping is essential for accuracy.
+**Critical:** Coordinate mapping is essential for accuracy.
 
 World coordinates are mapped to image coordinates using linear scaling:
 
@@ -107,14 +121,18 @@ World coordinates are mapped to image coordinates using linear scaling:
 
 See `frontend/src/utils/coordinates.ts` for implementation.
 
+---
+
 ## Adding Real Minimaps
 
 1. Add minimap images to `frontend/public/maps/`
-2. Update `DEFAULT_MAP_CONFIGS` in `frontend/src/utils/coordinates.ts`:
+2. Update `DEFAULT_MAP_CONFIGS` in `frontend/src/utils/coordinates.ts`
    - `map_id`: Match with telemetry data
    - `imageUrl`: Path to minimap
    - `worldBounds`: Get from Level Design team
    - `imageWidth/Height`: Minimap dimensions
+
+---
 
 ## Deployment
 
@@ -125,6 +143,4 @@ npm run build
 # Deploy frontend/dist to Vercel
 ```
 
-## License
-
-Proprietary - Lila Games
+---
