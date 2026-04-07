@@ -10,7 +10,8 @@ export interface PlayerEvent {
   map_id: string;
   timestamp: number; // Unix timestamp in milliseconds
   x: number; // World coordinate X
-  y: number; // World coordinate Y
+  y: number; // World coordinate Z (for 2D minimap plotting)
+  z: number; // World coordinate Y (elevation - not used for minimap)
   event_type: EventType;
   is_bot: boolean;
   metadata?: Record<string, unknown>; // Additional event-specific data

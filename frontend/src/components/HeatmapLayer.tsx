@@ -1,11 +1,14 @@
 /**
  * Heatmap Layer Component using heatmap.js
  * Renders heatmap overlay synced with the map
+ *
+ * CRITICAL: The heatmap canvas must ALWAYS match the map container's
+ * actual rendered dimensions exactly. Uses position: absolute for overlay.
  */
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useCallback } from 'react';
 import heatmap from 'heatmap.js';
 import type { MatchData, MapConfig, EventType } from '../types';
-import { worldToImage } from '../utils/coordinates';
+import { worldToImage, getMapRenderDimensions } from '../utils/coordinates';
 
 interface HeatmapLayerProps {
   mapConfig: MapConfig;
@@ -16,6 +19,7 @@ interface HeatmapLayerProps {
   currentTime: number;
   enabled: boolean;
   type: 'kills' | 'deaths' | 'traffic' | 'loot';
+  containerSize: { width: number; height: number };
 }
 
 export const HeatmapLayer: React.FC<HeatmapLayerProps> = ({
@@ -27,46 +31,40 @@ export const HeatmapLayer: React.FC<HeatmapLayerProps> = ({
   currentTime,
   enabled,
   type,
+  containerSize,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const heatmapInstanceRef = useRef<ReturnType<typeof heatmap.create> | null>(null);
-  const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  // Calculate container size based on map dimensions and scale
-  useEffect(() => {
-    if (!containerRef.current) return;
+  // Calculate actual map render dimensions within the container
+  const getRenderDimensions = useCallback(() => {
+    return getMapRenderDimensions(
+      containerSize.width,
+      containerSize.height,
+      mapConfig.imageWidth,
+      mapConfig.imageHeight
+    );
+  }, [containerSize.width, containerSize.height, mapConfig.imageWidth, mapConfig.imageHeight]);
 
-    const parent = containerRef.current.parentElement;
-    if (!parent) return;
-
-    const updateSize = () => {
-      const parentWidth = parent.offsetWidth - 32; // Account for padding
-      const parentHeight = parent.offsetHeight - 32;
-
-      const scaleX = parentWidth / mapConfig.imageWidth;
-      const scaleY = parentHeight / mapConfig.imageHeight;
-      const scale = Math.min(scaleX, scaleY);
-
-      setContainerSize({
-        width: mapConfig.imageWidth * scale,
-        height: mapConfig.imageHeight * scale,
-      });
-    };
-
-    updateSize();
-    window.addEventListener('resize', updateSize);
-    return () => window.removeEventListener('resize', updateSize);
-  }, [mapConfig.imageWidth, mapConfig.imageHeight]);
+  // Destroy existing heatmap instance
+  const destroyHeatmap = useCallback(() => {
+    if (heatmapInstanceRef.current && containerRef.current) {
+      // Clear the container
+      containerRef.current.innerHTML = '';
+      heatmapInstanceRef.current = null;
+      canvasRef.current = null;
+    }
+  }, []);
 
   // Initialize heatmap instance
-  useEffect(() => {
-    if (!containerRef.current || !enabled || containerSize.width === 0) return;
+  const initHeatmap = useCallback(() => {
+    if (!containerRef.current || !enabled || containerSize.width === 0 || containerSize.height === 0) {
+      return;
+    }
 
     // Clean up existing instance
-    if (heatmapInstanceRef.current) {
-      heatmapInstanceRef.current = null;
-      containerRef.current.innerHTML = '';
-    }
+    destroyHeatmap();
 
     const instance = heatmap.create({
       container: containerRef.current,
@@ -85,17 +83,55 @@ export const HeatmapLayer: React.FC<HeatmapLayerProps> = ({
 
     heatmapInstanceRef.current = instance;
 
+    // Store reference to the canvas element
+    const canvas = containerRef.current.querySelector('canvas');
+    if (canvas) {
+      canvasRef.current = canvas as HTMLCanvasElement;
+    }
+  }, [enabled, containerSize.width, containerSize.height, destroyHeatmap]);
+
+  // Initialize heatmap when enabled or container size changes
+  useEffect(() => {
+    if (enabled) {
+      initHeatmap();
+    }
     return () => {
-      containerRef.current!.innerHTML = '';
-      heatmapInstanceRef.current = null;
+      if (!enabled) {
+        destroyHeatmap();
+      }
     };
-  }, [enabled, containerSize.width, containerSize.height]);
+  }, [enabled, initHeatmap, destroyHeatmap]);
+
+  // Update heatmap canvas dimensions to match container
+  useEffect(() => {
+    if (!canvasRef.current || !enabled) return;
+
+    const { offsetX, offsetY } = getRenderDimensions();
+
+    // Set canvas dimensions to match the actual render size
+    // The canvas needs to be the full container size so we can position it correctly
+    canvasRef.current.width = containerSize.width;
+    canvasRef.current.height = containerSize.height;
+    canvasRef.current.style.width = `${containerSize.width}px`;
+    canvasRef.current.style.height = `${containerSize.height}px`;
+
+    // Store offset for coordinate calculation
+    canvasRef.current.dataset.offsetX = String(offsetX);
+    canvasRef.current.dataset.offsetY = String(offsetY);
+  }, [containerSize.width, containerSize.height, enabled, getRenderDimensions]);
 
   // Update heatmap data when events change
   useEffect(() => {
-    if (!heatmapInstanceRef.current || !enabled || !matchData) return;
+    if (!heatmapInstanceRef.current || !enabled || !matchData || containerSize.width === 0) {
+      return;
+    }
 
-    const scale = containerSize.width / mapConfig.imageWidth;
+    const renderDims = getRenderDimensions();
+    const { offsetX, offsetY, scale } = renderDims;
+
+    // Scale factor from image coordinates to render coordinates
+    const scaleX = scale;
+    const scaleY = scale;
 
     // Filter events based on type and visibility
     const events: { x: number; y: number; value: number }[] = [];
@@ -133,10 +169,16 @@ export const HeatmapLayer: React.FC<HeatmapLayerProps> = ({
         }
 
         if (shouldInclude && visibleEventTypes.includes(event.event_type)) {
+          // Convert world to image coordinates
           const imgCoords = worldToImage(event.x, event.y, mapConfig);
+
+          // Convert image coordinates to render coordinates (add offset)
+          const renderX = imgCoords.x * scaleX + offsetX;
+          const renderY = imgCoords.y * scaleY + offsetY;
+
           events.push({
-            x: Math.round(imgCoords.x * scale),
-            y: Math.round(imgCoords.y * scale),
+            x: Math.round(renderX),
+            y: Math.round(renderY),
             value,
           });
         }
@@ -169,7 +211,9 @@ export const HeatmapLayer: React.FC<HeatmapLayerProps> = ({
     type,
     mapConfig,
     containerSize.width,
+    containerSize.height,
     enabled,
+    getRenderDimensions,
   ]);
 
   if (!enabled) return null;
@@ -179,9 +223,8 @@ export const HeatmapLayer: React.FC<HeatmapLayerProps> = ({
       ref={containerRef}
       style={{
         position: 'absolute',
-        top: '50%',
-        left: '50%',
-        transform: 'translate(-50%, -50%)',
+        top: 0,
+        left: 0,
         width: containerSize.width,
         height: containerSize.height,
         pointerEvents: 'none',

@@ -35,7 +35,7 @@ function App() {
   // State
   const [matches, setMatches] = useState<MatchData[]>([]);
   const [selectedMatchId, setSelectedMatchId] = useState<string | null>(null);
-  const [selectedMapId, setSelectedMapId] = useState<string>('map_01');
+  const [selectedMapId, setSelectedMapId] = useState<string>('AmbroseValley');
   const [selectedPlayerId, setSelectedPlayerId] = useState<string | null>(
     null
   );
@@ -83,9 +83,10 @@ function App() {
 
   // Load mock data on mount
   useEffect(() => {
-    const mockData = generateMockData('map_01');
+    const mockData = generateMockData('AmbroseValley');
     setMatches([mockData]);
     setSelectedMatchId(mockData.match_id);
+    setSelectedMapId(mockData.map_id);
 
     // Initialize timeline
     setTimeline({

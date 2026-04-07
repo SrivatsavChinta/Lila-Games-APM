@@ -10,12 +10,20 @@
  *   v = (z - originZ) / scale
  *   pixel_x = u * imageWidth
  *   pixel_y = (1 - v) * imageHeight  (Y-axis is flipped)
+ *
+ * For runtime alignment:
+ *   - NEVER use hardcoded 1024 values
+ *   - ALWAYS use the actual rendered dimensions from getBoundingClientRect()
+ *   - The heatmap canvas MUST match the map container exactly
  */
 import type { MapConfig } from '../types';
 
 /**
  * Transform world coordinates (x, z) to image pixel coordinates
  * Note: Use x and z from telemetry (y is elevation, not used)
+ *
+ * This returns coordinates in the ORIGINAL image coordinate space (e.g., 0-1024).
+ * To get screen coordinates, you must scale these based on the actual rendered size.
  */
 export function worldToImage(
   worldX: number,
@@ -95,8 +103,62 @@ export function clampWorldCoordinates(
   };
 }
 
+/**
+ * Calculate the actual rendered dimensions of a map within a container
+ * This maintains aspect ratio and centers the map (letterboxing if needed)
+ *
+ * CRITICAL: Use this to sync heatmap dimensions with the actual visible map
+ *
+ * @param containerWidth - The actual container width in pixels (from getBoundingClientRect)
+ * @param containerHeight - The actual container height in pixels (from getBoundingClientRect)
+ * @param mapImageWidth - The original map image width (e.g., 1024)
+ * @param mapImageHeight - The original map image height (e.g., 1024)
+ * @returns Object with render dimensions and offsets for centering
+ */
+export function getMapRenderDimensions(
+  containerWidth: number,
+  containerHeight: number,
+  mapImageWidth: number,
+  mapImageHeight: number
+): {
+  width: number;
+  height: number;
+  scale: number;
+  offsetX: number;
+  offsetY: number;
+} {
+  if (containerWidth === 0 || containerHeight === 0) {
+    return { width: 0, height: 0, scale: 1, offsetX: 0, offsetY: 0 };
+  }
+
+  // Calculate scale to fit within container while preserving aspect ratio
+  const scaleX = containerWidth / mapImageWidth;
+  const scaleY = containerHeight / mapImageHeight;
+  const scale = Math.min(scaleX, scaleY);
+
+  // Calculate rendered dimensions
+  const width = mapImageWidth * scale;
+  const height = mapImageHeight * scale;
+
+  // Calculate centering offsets (for letterboxing)
+  const offsetX = (containerWidth - width) / 2;
+  const offsetY = (containerHeight - height) / 2;
+
+  return { width, height, scale, offsetX, offsetY };
+}
+
 // LILA BLACK Map Configurations
 // From Level Design team - verified coordinates
+//
+// Coordinate system:
+//   - scale: The size of the map in world units
+//   - originX, originZ: The world coordinates of the bottom-left (0,0) of the minimap
+//
+// World bounds for each map:
+//   AmbroseValley: x in [-370, 530], z in [-473, 427]  (scale=900)
+//   GrandRift:     x in [-290, 291], z in [-290, 291]  (scale=581)
+//   Lockdown:      x in [-500, 500],  z in [-500, 500]  (scale=1000)
+//
 export const DEFAULT_MAP_CONFIGS: MapConfig[] = [
   {
     map_id: 'AmbroseValley',

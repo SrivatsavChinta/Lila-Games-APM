@@ -52,7 +52,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
   heatmapType = 'kills',
 }) => {
   const [minimapImage, setMinimapImage] = useState<HTMLImageElement | null>(null);
-  const [scale, setScale] = useState(1);
+  const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
   const stageRef = useRef<Konva.Stage>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -68,20 +68,58 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
     };
   }, [mapConfig.imageUrl]);
 
-  // Calculate scale to fit container while maintaining aspect ratio
+  // Track container size for proper heatmap alignment
   useEffect(() => {
-    if (containerRef.current && minimapImage) {
-      const containerWidth = containerRef.current.offsetWidth;
-      const containerHeight = containerRef.current.offsetHeight;
+    if (!containerRef.current) return;
 
-      // Calculate scale to fit within container (preserving aspect ratio)
-      const scaleX = containerWidth / mapConfig.imageWidth;
-      const scaleY = containerHeight / mapConfig.imageHeight;
-      const fitScale = Math.min(scaleX, scaleY);
+    const updateSize = () => {
+      if (containerRef.current) {
+        const rect = containerRef.current.getBoundingClientRect();
+        setContainerSize({
+          width: rect.width,
+          height: rect.height,
+        });
+      }
+    };
 
-      setScale(fitScale);
+    updateSize();
+
+    // Use ResizeObserver for precise size tracking
+    const resizeObserver = new ResizeObserver(() => {
+      updateSize();
+    });
+
+    resizeObserver.observe(containerRef.current);
+    window.addEventListener('resize', updateSize);
+
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener('resize', updateSize);
+    };
+  }, []);
+
+  // Calculate the actual rendered size of the map image
+  // This ensures the heatmap aligns exactly with the visible map
+  const getMapRenderSize = () => {
+    if (containerSize.width === 0 || containerSize.height === 0) {
+      return { width: 0, height: 0, scale: 1, offsetX: 0, offsetY: 0 };
     }
-  }, [minimapImage, mapConfig.imageWidth, mapConfig.imageHeight]);
+
+    const scaleX = containerSize.width / mapConfig.imageWidth;
+    const scaleY = containerSize.height / mapConfig.imageHeight;
+    const scale = Math.min(scaleX, scaleY);
+
+    const renderWidth = mapConfig.imageWidth * scale;
+    const renderHeight = mapConfig.imageHeight * scale;
+
+    // Calculate centering offsets (if map is letterboxed)
+    const offsetX = (containerSize.width - renderWidth) / 2;
+    const offsetY = (containerSize.height - renderHeight) / 2;
+
+    return { width: renderWidth, height: renderHeight, scale, offsetX, offsetY };
+  };
+
+  const mapRenderSize = getMapRenderSize();
 
   // Filter visible players
   const visiblePlayers = matchData?.players.filter((p) => {
@@ -98,7 +136,10 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
       if (event.event_type !== 'position' && !visibleEventTypes.includes(event.event_type)) continue;
 
       const imgCoords = worldToImage(event.x, event.y, mapConfig);
-      points.push(imgCoords.x, imgCoords.y);
+      // Scale to rendered size and add offset
+      const renderX = imgCoords.x * mapRenderSize.scale + mapRenderSize.offsetX;
+      const renderY = imgCoords.y * mapRenderSize.scale + mapRenderSize.offsetY;
+      points.push(renderX, renderY);
     }
     return points;
   };
@@ -121,9 +162,9 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
     const pos = stage.getPointerPosition();
     if (!pos) return;
 
-    // Transform to image coordinates
-    const imageX = pos.x / scale;
-    const imageY = pos.y / scale;
+    // Transform to image coordinates (subtract offset, divide by scale)
+    const imageX = (pos.x - mapRenderSize.offsetX) / mapRenderSize.scale;
+    const imageY = (pos.y - mapRenderSize.offsetY) / mapRenderSize.scale;
 
     // Transform to world coordinates
     const normalizedX = imageX / mapConfig.imageWidth;
@@ -142,7 +183,11 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
   const getPlayerCurrentPosition = (player: PlayerJourney): { x: number; y: number } | null => {
     const event = player.events.find((e) => e.timestamp <= currentTime);
     if (!event) return null;
-    return worldToImage(event.x, event.y, mapConfig);
+    const imgCoords = worldToImage(event.x, event.y, mapConfig);
+    return {
+      x: imgCoords.x * mapRenderSize.scale + mapRenderSize.offsetX,
+      y: imgCoords.y * mapRenderSize.scale + mapRenderSize.offsetY,
+    };
   };
 
   return (
@@ -156,6 +201,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
         position: 'relative',
       }}
     >
+      {/* Heatmap layer - positioned absolutely to match map container */}
       <HeatmapLayer
         mapConfig={mapConfig}
         matchData={matchData}
@@ -165,23 +211,26 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
         currentTime={currentTime}
         enabled={heatmapEnabled}
         type={heatmapType}
+        containerSize={containerSize}
       />
+
+      {/* Konva Stage for map rendering */}
       <Stage
         ref={stageRef}
-        width={mapConfig.imageWidth * scale}
-        height={mapConfig.imageHeight * scale}
-        scaleX={scale}
-        scaleY={scale}
+        width={containerSize.width}
+        height={containerSize.height}
         onClick={handleStageClick}
         style={{ cursor: 'crosshair', position: 'relative', zIndex: 20 }}
       >
         <Layer>
-          {/* Minimap background */}
+          {/* Minimap background - centered in container */}
           {minimapImage && (
             <KonvaImage
               image={minimapImage}
-              width={mapConfig.imageWidth}
-              height={mapConfig.imageHeight}
+              x={mapRenderSize.offsetX}
+              y={mapRenderSize.offsetY}
+              width={mapRenderSize.width}
+              height={mapRenderSize.height}
               opacity={0.8}
             />
           )}
@@ -214,12 +263,14 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
               const pos = worldToImage(event.x, event.y, mapConfig);
               const color = EVENT_COLORS[event.event_type];
               const isSelected = player.player_id === selectedPlayerId;
+              const renderX = pos.x * mapRenderSize.scale + mapRenderSize.offsetX;
+              const renderY = pos.y * mapRenderSize.scale + mapRenderSize.offsetY;
 
               return (
                 <Circle
                   key={`${player.player_id}_${idx}`}
-                  x={pos.x}
-                  y={pos.y}
+                  x={renderX}
+                  y={renderY}
                   radius={isSelected ? 8 : 5}
                   fill={color}
                   stroke={isSelected ? '#FFFFFF' : 'transparent'}
@@ -229,7 +280,6 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
                     e.cancelBubble = true;
                     onPlayerSelect(player.player_id);
                   }}
-                  style={{ cursor: 'pointer' }}
                 />
               );
             });
@@ -257,7 +307,6 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
                     e.cancelBubble = true;
                     onPlayerSelect(player.player_id);
                   }}
-                  style={{ cursor: 'pointer' }}
                 />
                 {isSelected && (
                   <Text

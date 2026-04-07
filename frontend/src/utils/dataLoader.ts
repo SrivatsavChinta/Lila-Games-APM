@@ -1,7 +1,19 @@
 /**
  * Data loading utilities for parquet and mock data
+ *
+ * Parquet Schema (from README):
+ *   - user_id: UUID string = human, numeric string (e.g., "1440") = bot
+ *   - match_id: string
+ *   - map_id: one of "AmbroseValley", "GrandRift", "Lockdown"
+ *   - x, y, z: world position floats (x, z used for 2D plotting)
+ *   - ts: timestamp in milliseconds (time elapsed within match)
+ *   - event: "Position", "BotPosition", "Kill", "Killed", "BotKill", "BotKilled", "KilledByStorm", "Loot"
  */
-import type { PlayerEvent, MatchData, PlayerJourney } from '../types';
+import type {
+  PlayerEvent,
+  MatchData,
+  PlayerJourney,
+} from '../types';
 import { tableFromIPC } from 'apache-arrow';
 import * as parquetWasm from 'parquet-wasm';
 
@@ -17,62 +29,161 @@ async function initParquetWasm(): Promise<void> {
   return wasmInitialized;
 }
 
-// Mock data generator for testing without parquet files
-export function generateMockData(mapId: string = 'map_01'): MatchData {
-  const matchId = `match_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
-  const startTime = Date.now() - 1000 * 60 * 15; // 15 minutes ago
-  const endTime = Date.now();
+// Map world bounds from the map configs
+const MAP_BOUNDS: Record<
+  string,
+  { minX: number; maxX: number; minZ: number; maxZ: number }
+> = {
+  AmbroseValley: { minX: -370, maxX: 530, minZ: -473, maxZ: 427 },
+  GrandRift: { minX: -290, maxX: 291, minZ: -290, maxZ: 291 },
+  Lockdown: { minX: -500, maxX: 500, minZ: -500, maxZ: 500 },
+};
+
+// Event type probabilities for realistic distribution
+const EVENT_DISTRIBUTION = [
+  { type: 'Position', prob: 0.6, isBot: false },
+  { type: 'BotPosition', prob: 0.25, isBot: true },
+  { type: 'Kill', prob: 0.015, isBot: false },
+  { type: 'Killed', prob: 0.015, isBot: false },
+  { type: 'BotKill', prob: 0.02, isBot: true },
+  { type: 'BotKilled', prob: 0.02, isBot: true },
+  { type: 'KilledByStorm', prob: 0.01, isBot: false },
+  { type: 'Loot', prob: 0.07, isBot: false },
+];
+
+// Generate a UUID v4
+function generateUUID(): string {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
+// Generate a random position within map bounds
+function generateRandomPosition(
+  mapBounds: { minX: number; maxX: number; minZ: number; maxZ: number },
+  previousX?: number,
+  previousZ?: number
+): { x: number; y: number; z: number } {
+  let x: number;
+  let z: number;
+
+  if (previousX !== undefined && previousZ !== undefined) {
+    // Continue from previous position with small random movement
+    const moveRange = 30; // Max movement per tick
+    x = previousX + (Math.random() - 0.5) * moveRange * 2;
+    z = previousZ + (Math.random() - 0.5) * moveRange * 2;
+
+    // Clamp to map bounds
+    x = Math.max(mapBounds.minX, Math.min(mapBounds.maxX, x));
+    z = Math.max(mapBounds.minZ, Math.min(mapBounds.maxZ, z));
+  } else {
+    // Random position within bounds
+    x = mapBounds.minX + Math.random() * (mapBounds.maxX - mapBounds.minX);
+    z = mapBounds.minZ + Math.random() * (mapBounds.maxZ - mapBounds.minZ);
+  }
+
+  // y is elevation/height - generate realistic values (0-500 units)
+  const y = Math.random() * 500;
+
+  return { x, y, z };
+}
+
+// Map event types from parquet schema to internal types
+function mapEventType(parquetEvent: string): PlayerEvent['event_type'] {
+  const mapping: Record<string, PlayerEvent['event_type']> = {
+    Position: 'position',
+    BotPosition: 'position',
+    Kill: 'kill',
+    Killed: 'death',
+    BotKill: 'kill',
+    BotKilled: 'death',
+    KilledByStorm: 'storm_death',
+    Loot: 'loot',
+  };
+  return mapping[parquetEvent] || 'position';
+}
+
+/**
+ * Mock data generator for testing without parquet files
+ * Follows the LILA BLACK parquet schema:
+ *   - user_id: UUID for humans, numeric for bots
+ *   - x, z: world coordinates for 2D plotting
+ *   - y: elevation (not used for minimap)
+ *   - ts: timestamp in milliseconds within match
+ *   - event: Position, BotPosition, Kill, Killed, etc.
+ */
+export function generateMockData(mapId: string = 'AmbroseValley'): MatchData {
+  const matchId = generateUUID();
+  const mapBounds = MAP_BOUNDS[mapId] || MAP_BOUNDS['AmbroseValley'];
+
+  // Match duration: 10-20 minutes in milliseconds
+  const matchDuration = (10 + Math.random() * 10) * 60 * 1000;
+  const matchStartTime = Date.now();
 
   const numHumans = 12;
   const numBots = 36;
-  const eventsPerPlayer = 50;
+  const eventsPerSecond = 2; // Events per player per second
+  const totalEvents = Math.floor(matchDuration / 1000) * eventsPerSecond;
 
   const players: PlayerJourney[] = [];
   const allEvents: PlayerEvent[] = [];
 
-  // Generate players
-  for (let i = 0; i < numHumans + numBots; i++) {
-    const isBot = i >= numHumans;
-    const playerId = isBot ? `bot_${i - numHumans + 1}` : `player_${i + 1}`;
+  // Generate human players (UUID user_ids)
+  for (let i = 0; i < numHumans; i++) {
+    const userId = generateUUID();
+    const isBot = false;
 
-    // Random starting position (world coords: -5000 to 5000)
-    let x = (Math.random() - 0.5) * 10000;
-    let y = (Math.random() - 0.5) * 10000;
+    // Random starting position
+    let pos = generateRandomPosition(mapBounds);
+    let currentTime = 0;
 
     const events: PlayerEvent[] = [];
-    let currentTime = startTime;
+    const eventsForPlayer = Math.floor(
+      totalEvents / (numHumans + numBots) + Math.random() * 50
+    );
 
-    for (let j = 0; j < eventsPerPlayer; j++) {
-      // Random movement
-      x += (Math.random() - 0.5) * 500;
-      y += (Math.random() - 0.5) * 500;
+    for (let j = 0; j < eventsForPlayer; j++) {
+      // Time between events: 200-800ms (2-5 events per second)
+      currentTime += 200 + Math.random() * 600;
 
-      // Clamp to world bounds
-      x = Math.max(-5000, Math.min(5000, x));
-      y = Math.max(-5000, Math.min(5000, y));
+      if (currentTime > matchDuration) break;
 
-      currentTime += Math.random() * 1000 * 10; // 0-10 seconds between events
-
-      // Determine event type
-      let eventType: PlayerEvent['event_type'] = 'position';
+      // Determine event type based on distribution
       const rand = Math.random();
-      if (rand < 0.02) eventType = 'kill';
-      else if (rand < 0.04) eventType = 'death';
-      else if (rand < 0.08) eventType = 'loot';
-      else if (rand < 0.09) eventType = 'storm_death';
+      let eventType = 'Position';
+      let cumulativeProb = 0;
 
-      // Stop generating if past end time
-      if (currentTime > endTime) break;
+      for (const evt of EVENT_DISTRIBUTION) {
+        cumulativeProb += evt.prob;
+        if (rand < cumulativeProb) {
+          if (evt.isBot === isBot || (evt.isBot && isBot) || (!evt.isBot && !isBot)) {
+            eventType = evt.type;
+            break;
+          }
+        }
+      }
+
+      // Only movement events change position
+      if (
+        eventType === 'Position' ||
+        eventType === 'BotPosition' ||
+        eventType === 'Loot'
+      ) {
+        pos = generateRandomPosition(mapBounds, pos.x, pos.z);
+      }
 
       const event: PlayerEvent = {
-        id: `${matchId}_${playerId}_${j}`,
-        player_id: playerId,
+        id: `${matchId}_${userId}_${j}`,
+        player_id: userId,
         match_id: matchId,
         map_id: mapId,
-        timestamp: currentTime,
-        x,
-        y,
-        event_type: eventType,
+        timestamp: matchStartTime + currentTime,
+        x: pos.x,
+        y: pos.y,
+        z: pos.z,
+        event_type: mapEventType(eventType),
         is_bot: isBot,
       };
 
@@ -82,7 +193,7 @@ export function generateMockData(mapId: string = 'map_01'): MatchData {
 
     if (events.length > 0) {
       players.push({
-        player_id: playerId,
+        player_id: userId,
         match_id: matchId,
         map_id: mapId,
         is_bot: isBot,
@@ -93,14 +204,97 @@ export function generateMockData(mapId: string = 'map_01'): MatchData {
     }
   }
 
+  // Generate bots (numeric user_ids like "1440", "1441", etc.)
+  const botStartId = 1401;
+  for (let i = 0; i < numBots; i++) {
+    const userId = String(botStartId + i);
+    const isBot = true;
+
+    // Random starting position
+    let pos = generateRandomPosition(mapBounds);
+    let currentTime = 0;
+
+    const events: PlayerEvent[] = [];
+    const eventsForPlayer = Math.floor(
+      totalEvents / (numHumans + numBots) + Math.random() * 30
+    );
+
+    for (let j = 0; j < eventsForPlayer; j++) {
+      // Time between events: 300-1000ms
+      currentTime += 300 + Math.random() * 700;
+
+      if (currentTime > matchDuration) break;
+
+      // Determine event type - bots mostly have BotPosition
+      const rand = Math.random();
+      let eventType = 'BotPosition';
+
+      if (rand < 0.85) {
+        eventType = 'BotPosition';
+      } else if (rand < 0.90) {
+        eventType = 'BotKill';
+      } else if (rand < 0.95) {
+        eventType = 'BotKilled';
+      } else if (rand < 0.98) {
+        eventType = 'Loot';
+      } else {
+        eventType = 'KilledByStorm';
+      }
+
+      // Only movement events change position
+      if (eventType === 'BotPosition' || eventType === 'Loot') {
+        pos = generateRandomPosition(mapBounds, pos.x, pos.z);
+      }
+
+      const event: PlayerEvent = {
+        id: `${matchId}_${userId}_${j}`,
+        player_id: userId,
+        match_id: matchId,
+        map_id: mapId,
+        timestamp: matchStartTime + currentTime,
+        x: pos.x,
+        y: pos.y,
+        z: pos.z,
+        event_type: mapEventType(eventType),
+        is_bot: isBot,
+      };
+
+      events.push(event);
+      allEvents.push(event);
+    }
+
+    if (events.length > 0) {
+      players.push({
+        player_id: userId,
+        match_id: matchId,
+        map_id: mapId,
+        is_bot: isBot,
+        events,
+        startTime: events[0].timestamp,
+        endTime: events[events.length - 1].timestamp,
+      });
+    }
+  }
+
+  // Sort all events by timestamp
+  allEvents.sort((a, b) => a.timestamp - b.timestamp);
+
   return {
     match_id: matchId,
     map_id: mapId,
-    startTime,
-    endTime,
+    startTime: matchStartTime,
+    endTime: matchStartTime + matchDuration,
     players,
     allEvents,
   };
+}
+
+/**
+ * Generate mock data for a specific map
+ * This is a convenience wrapper around generateMockData
+ */
+export function generateMockDataForMap(mapId: string): MatchData {
+  return generateMockData(mapId);
 }
 
 // Load parquet file from URL or File
@@ -133,29 +327,40 @@ export async function loadParquetFile(
     const table = tableFromIPC(ipcBytes);
 
     // Convert Arrow table to PlayerEvent array
+    // Schema: user_id, match_id, map_id, x, y, z, ts, event
     const events: PlayerEvent[] = [];
     const numRows = table.numRows;
 
-    const playerIdCol = table.getChild('player_id');
+    const userIdCol = table.getChild('user_id');
     const matchIdCol = table.getChild('match_id');
     const mapIdCol = table.getChild('map_id');
-    const timestampCol = table.getChild('timestamp');
     const xCol = table.getChild('x');
     const yCol = table.getChild('y');
-    const eventTypeCol = table.getChild('event_type');
-    const isBotCol = table.getChild('is_bot');
+    const zCol = table.getChild('z');
+    const tsCol = table.getChild('ts');
+    const eventCol = table.getChild('event');
 
     for (let i = 0; i < numRows; i++) {
+      const userId = String(userIdCol?.get(i) ?? '');
+      const eventType = String(eventCol?.get(i) ?? 'Position');
+      const isBot = /^\d+$/.test(userId); // Numeric user_id = bot
+
+      // Note: x is x, z is z (y in parquet is elevation, not used for minimap)
+      const worldX = Number(xCol?.get(i) ?? 0);
+      const worldY = Number(zCol?.get(i) ?? 0); // z from parquet is y in our system
+      const elevation = Number(yCol?.get(i) ?? 0); // y from parquet is elevation
+
       events.push({
-        id: `${matchIdCol?.get(i)}_${playerIdCol?.get(i)}_${i}`,
-        player_id: String(playerIdCol?.get(i) ?? ''),
+        id: `${matchIdCol?.get(i)}_${userId}_${i}`,
+        player_id: userId,
         match_id: String(matchIdCol?.get(i) ?? ''),
         map_id: String(mapIdCol?.get(i) ?? ''),
-        timestamp: Number(timestampCol?.get(i) ?? 0),
-        x: Number(xCol?.get(i) ?? 0),
-        y: Number(yCol?.get(i) ?? 0),
-        event_type: String(eventTypeCol?.get(i) ?? 'position') as PlayerEvent['event_type'],
-        is_bot: Boolean(isBotCol?.get(i) ?? false),
+        timestamp: Number(tsCol?.get(i) ?? 0),
+        x: worldX,
+        y: worldY, // This is the z coordinate from parquet (for 2D plotting)
+        z: elevation, // This is elevation (not used for minimap)
+        event_type: mapEventType(eventType),
+        is_bot: isBot,
       });
     }
 
@@ -227,4 +432,20 @@ export function processEventsIntoMatches(events: PlayerEvent[]): MatchData[] {
 // Export mock data as JSON (for debugging/inspection)
 export function exportMockDataToJSON(matchData: MatchData): string {
   return JSON.stringify(matchData, null, 2);
+}
+
+// Export mock data as parquet-compatible format
+export function exportMockDataToParquetFormat(
+  matchData: MatchData
+): Record<string, unknown>[] {
+  return matchData.allEvents.map((event) => ({
+    user_id: event.player_id,
+    match_id: event.match_id,
+    map_id: event.map_id,
+    x: event.x,
+    y: event.z, // z is elevation in parquet
+    z: event.y, // y is the z coordinate in parquet (for 2D plotting)
+    ts: event.timestamp,
+    event: event.event_type,
+  }));
 }
