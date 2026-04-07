@@ -65,8 +65,18 @@ body {
   background: #2ea043;
 }
 
+.file-upload.loading {
+  background: #1f6feb;
+  cursor: not-allowed;
+}
+
 .file-upload input[type='file'] {
   display: none;
+}
+
+.btn-secondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .btn-secondary {
@@ -256,16 +266,12 @@ body {
   flex: 1;
   position: relative;
   overflow: hidden;
-  background: #0d1117;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 16px;
+  background: #0a0a0a;
 }
 
 .map-container > div {
-  max-width: 100%;
-  max-height: 100%;
+  width: 100% !important;
+  height: 100% !important;
 }
 
 /* Timeline panel */

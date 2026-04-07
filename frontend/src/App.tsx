@@ -13,8 +13,10 @@ import type {
   TimelineState,
 } from './types';
 import { MapCanvas } from './components/MapCanvas';
+import { ToastContainer, type ToastMessage } from './components/Toast';
 import {
   generateMockData,
+  generateMultipleMatches,
   loadParquetFile,
   processEventsIntoMatches,
 } from './utils/dataLoader';
@@ -41,6 +43,7 @@ function App() {
   );
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
   // Filters
   const [filters, setFilters] = useState<FilterState>({
@@ -65,6 +68,17 @@ function App() {
   // Heatmap
   const [heatmapEnabled, setHeatmapEnabled] = useState(false);
   const [heatmapType, setHeatmapType] = useState<'kills' | 'deaths' | 'traffic' | 'loot'>('kills');
+
+  // Toast helper
+  const addToast = useCallback((type: ToastMessage['type'], message: string) => {
+    const id = Math.random().toString(36).substr(2, 9);
+    setToasts(prev => [...prev, { id, type, message }]);
+    return id;
+  }, []);
+
+  const removeToast = useCallback((id: string) => {
+    setToasts(prev => prev.filter(t => t.id !== id));
+  }, []);
 
   // Get current match
   const currentMatch = useMemo(() => {
@@ -96,7 +110,9 @@ function App() {
       startTime: mockData.startTime,
       endTime: mockData.endTime,
     });
-  }, []);
+
+    addToast('success', `Mock data loaded — ${mockData.allEvents.length} events across 1 match on Ambrose Valley`);
+  }, [addToast]);
 
   // Playback animation
   useEffect(() => {
@@ -105,13 +121,13 @@ function App() {
     const interval = setInterval(() => {
       setTimeline((prev) => {
         const newTime =
-          prev.currentTime + 1000 * prev.playbackSpeed; // 1 second * speed
+          prev.currentTime + 1000 * prev.playbackSpeed;
         if (newTime >= prev.endTime) {
-          return { ...prev, currentTime: prev.startTime }; // Loop
+          return { ...prev, currentTime: prev.startTime };
         }
         return { ...prev, currentTime: newTime };
       });
-    }, 100); // Update 10 times per second
+    }, 100);
 
     return () => clearInterval(interval);
   }, [timeline.isPlaying, timeline.playbackSpeed, currentMatch]);
@@ -124,37 +140,55 @@ function App() {
 
       setIsLoading(true);
       setError(null);
+      const loadingToastId = addToast('loading', 'Parsing parquet file...');
 
       try {
         const events = await loadParquetFile(file);
         const newMatches = processEventsIntoMatches(events);
+
+        // Remove loading toast
+        removeToast(loadingToastId);
+
         setMatches((prev) => [...prev, ...newMatches]);
-        if (newMatches.length > 0 && !selectedMatchId) {
-          setSelectedMatchId(newMatches[0].match_id);
+
+        if (newMatches.length > 0) {
+          if (!selectedMatchId) {
+            setSelectedMatchId(newMatches[0].match_id);
+          }
+
+          const totalEvents = newMatches.reduce((sum, m) => sum + m.allEvents.length, 0);
+          addToast('success', `File uploaded successfully — ${totalEvents} events loaded across ${newMatches.length} match${newMatches.length > 1 ? 'es' : ''}`);
         }
       } catch (err) {
-        setError(`Failed to load file: ${(err as Error).message}`);
+        removeToast(loadingToastId);
+        const errorMsg = `Failed to read file — make sure it is a valid .parquet file`;
+        setError(errorMsg);
+        addToast('error', errorMsg);
       } finally {
         setIsLoading(false);
+        // Reset file input
+        event.target.value = '';
       }
     },
-    [selectedMatchId]
+    [selectedMatchId, addToast, removeToast]
   );
 
   // Generate new mock data
   const handleGenerateMock = useCallback(() => {
-    const mockData = generateMockData(selectedMapId);
-    setMatches((prev) => [...prev, mockData]);
-    setSelectedMatchId(mockData.match_id);
+    const mockMatches = generateMultipleMatches(selectedMapId, 2 + Math.floor(Math.random() * 2)); // 2-3 matches
 
-    setTimeline({
-      currentTime: mockData.startTime,
-      isPlaying: false,
-      playbackSpeed: 1,
-      startTime: mockData.startTime,
-      endTime: mockData.endTime,
-    });
-  }, [selectedMapId]);
+    setMatches((prev) => [...prev, ...mockMatches]);
+
+    // Auto-select the first new match
+    if (mockMatches.length > 0) {
+      setSelectedMatchId(mockMatches[0].match_id);
+    }
+
+    const totalEvents = mockMatches.reduce((sum, m) => sum + m.allEvents.length, 0);
+    const mapName = DEFAULT_MAP_CONFIGS.find(m => m.map_id === selectedMapId)?.name || selectedMapId;
+
+    addToast('success', `Mock data generated — ${totalEvents} events across ${mockMatches.length} matches on ${mapName}`);
+  }, [selectedMapId, addToast]);
 
   // Timeline controls
   const handlePlayPause = () => {
@@ -170,8 +204,9 @@ function App() {
 
   // Format time display
   const formatTime = (timestamp: number) => {
-    const date = new Date(timestamp);
-    return date.toLocaleTimeString();
+    const minutes = Math.floor(timestamp / 60000);
+    const seconds = Math.floor((timestamp % 60000) / 1000);
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   };
 
   // Calculate timeline progress
@@ -186,20 +221,27 @@ function App() {
 
   return (
     <div className="app">
+      {/* Toast notifications */}
+      <ToastContainer toasts={toasts} onDismiss={removeToast} />
+
       {/* Header */}
       <header className="app-header">
         <h1>LILA BLACK - Player Journey Visualizer</h1>
         <div className="header-actions">
-          <label className="file-upload">
+          <label className={`file-upload ${isLoading ? 'loading' : ''}`}>
             <input
               type="file"
               accept=".parquet,.arrow"
               onChange={handleFileUpload}
               disabled={isLoading}
             />
-            {isLoading ? 'Loading...' : 'Upload Parquet'}
+            {isLoading ? 'Parsing...' : 'Upload Parquet'}
           </label>
-          <button onClick={handleGenerateMock} className="btn-secondary">
+          <button
+            onClick={handleGenerateMock}
+            className="btn-secondary"
+            disabled={isLoading}
+          >
             Generate Mock Data
           </button>
         </div>
@@ -225,7 +267,7 @@ function App() {
             >
               {matches.map((m) => (
                 <option key={m.match_id} value={m.match_id}>
-                  {m.match_id.slice(0, 20)}... ({m.players.length} players)
+                  {m.match_id.slice(0, 8)}... ({m.players.length} players, {m.allEvents.length} events)
                 </option>
               ))}
             </select>
@@ -346,7 +388,7 @@ function App() {
                     <span
                       className={`player-type ${p.is_bot ? 'bot' : 'human'}`}
                     />
-                    {p.player_id}
+                    {p.is_bot ? `Bot ${p.player_id.slice(-4)}` : `Player ${p.player_id.slice(0, 8)}`}
                     <span className="event-count">
                       ({p.events.length} events)
                     </span>
@@ -388,7 +430,7 @@ function App() {
                 <span>Deaths:</span>
                 <span>
                   {
-                    currentMatch.allEvents.filter((e) => e.event_type === 'death')
+                    currentMatch.allEvents.filter((e) => e.event_type === 'death' || e.event_type === 'storm_death')
                       .length
                   }
                 </span>

@@ -1,4 +1,5 @@
 🔗 Live Demo: https://lila-games-apm.vercel.app/
+Checkout the drive link for documents: https://bit.ly/4sQvKJ6
 
 # LILA BLACK - Player Journey Visualization Tool
 
@@ -7,6 +8,7 @@ A browser-based telemetry visualization tool for Lila Games' extraction shooter 
 ## Overview
 
 This tool allows Level Designers to explore player behavior on game maps by visualizing:
+
 - Player movement paths (humans vs bots)
 - Event markers (kills, deaths, loot pickups, storm deaths, extracts)
 - Match timelines with playback controls
@@ -54,6 +56,7 @@ player-viz-tool/
 ## Features
 
 ### Implemented (MVP)
+
 - [x] Mock data generation for testing
 - [x] World coordinate to image coordinate mapping
 - [x] Player path visualization (humans: teal, bots: red)
@@ -63,6 +66,7 @@ player-viz-tool/
 - [x] Player selection and highlighting
 
 ### Phase 2
+
 - [ ] Parquet file upload
 - [ ] Heatmap overlays
 - [ ] Multiple match comparison
@@ -77,10 +81,16 @@ interface PlayerEvent {
   player_id: string;
   match_id: string;
   map_id: string;
-  timestamp: number;    // Unix timestamp (ms)
-  x: number;            // World X coordinate
-  y: number;            // World Y coordinate
-  event_type: 'position' | 'kill' | 'death' | 'loot' | 'storm_death' | 'extract';
+  timestamp: number; // Unix timestamp (ms)
+  x: number; // World X coordinate
+  y: number; // World Y coordinate
+  event_type:
+    | "position"
+    | "kill"
+    | "death"
+    | "loot"
+    | "storm_death"
+    | "extract";
   is_bot: boolean;
 }
 ```
@@ -90,6 +100,7 @@ interface PlayerEvent {
 **Critical**: Coordinate mapping is essential for accuracy.
 
 World coordinates are mapped to image coordinates using linear scaling:
+
 - World bounds: Defined per map (e.g., -5000 to 5000)
 - Image bounds: Minimap pixel dimensions
 - Y-axis is inverted (world Y up = image Y down)
